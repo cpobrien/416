@@ -12,13 +12,13 @@ import (
 )
 
 type Network struct {
-	laddr  *net.UDPAddr
-	raddr  *net.UDPAddr
+	local  *net.UDPAddr
+	remote *net.UDPAddr
 	reader *bufio.Reader
 }
 
 func (n *Network)StartUDP() *net.UDPConn {
-	conn, err := net.DialUDP("udp", n.laddr, n.raddr)
+	conn, err := net.DialUDP("udp", n.local, n.remote)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -35,26 +35,27 @@ func Marshall(guess uint32) ([]byte, error) {
 	return network.Bytes(), err
 }
 
-func (a *Network) send(i int) string {
+func (n *Network) send(i int) string {
+	var len int
 	buf := make([]byte, BufferSize)
 	payload, _ := Marshall(uint32(i))
 	for {
-		conn := a.StartUDP()
+		conn := n.StartUDP()
 		_, err := conn.Write(payload)
 		if err != nil {
 			log.Fatal(err)
 		}
-		l, err := conn.Read(buf)
+		len, err = conn.Read(buf)
 		conn.Close()
-		// If at first read not succeed, try try again
-		if l != 0 || err == nil {
+		// If read not succeed, try try again
+		if len != 0 && err == nil {
 			break
 		}
-		return string(buf[:l])
 	}
+	return string(buf[:len])
 }
 
-func (a *Network) Run() {
+func (n *Network) Run() {
 	for {
 		fmt.Println("Input a number.")
 		var i int
@@ -67,10 +68,9 @@ func (a *Network) Run() {
 				break
 			}
 		}
-		res := a.send(i)
+		res := n.send(i)
 		switch res {
-		case "high": fallthrough
-		case "low": fmt.Printf("Your number is too %s.\n", res)
+		case "high", "low": fmt.Printf("Your number is too %s.\n", res)
 		default:
 			fmt.Println(res)
 			return
@@ -79,12 +79,10 @@ func (a *Network) Run() {
 }
 
 func NewNetwork(local, remote string) *Network {
-	a := new(Network)
-	raddr, _ := net.ResolveUDPAddr("udp", remote)
-	laddr, _ := net.ResolveUDPAddr("udp", local)
-	a.raddr = raddr
-	a.laddr = laddr
-	return a
+	n := new(Network)
+	n.remote, _ = net.ResolveUDPAddr("udp", remote)
+	n.local, _ = net.ResolveUDPAddr("udp", local)
+	return n
 }
 
 func main() {
