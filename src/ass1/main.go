@@ -4,16 +4,26 @@ import (
 	"fmt"
 	"os"
 	"net"
-	"time"
 	"bytes"
 	"encoding/gob"
 	"bufio"
 	"log"
+	"time"
 )
 
 type Network struct {
-	conn   net.Conn
+	laddr  *net.UDPAddr
+	raddr  *net.UDPAddr
 	reader *bufio.Reader
+}
+
+func (n *Network)StartUDP() *net.UDPConn {
+	conn, err := net.DialUDP("udp", n.laddr, n.raddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	conn.SetReadDeadline(time.Now().Add(time.Second))
+	return conn
 }
 
 var BufferSize int = 1024
@@ -26,22 +36,22 @@ func Marshall(guess uint32) ([]byte, error) {
 }
 
 func (a *Network) send(i int) string {
-	var buffer []byte
+	buf := make([]byte, BufferSize)
+	payload, _ := Marshall(uint32(i))
 	for {
-		payload, _ := Marshall(uint32(i))
-		_, err := a.conn.Write(payload)
-		if err == nil {
+		conn := a.StartUDP()
+		_, err := conn.Write(payload)
+		if err != nil {
+			log.Fatal(err)
+		}
+		l, err := conn.Read(buf)
+		conn.Close()
+		// If at first read not succeed, try try again
+		if l != 0 || err == nil {
 			break
 		}
-		fmt.Println("not snet.")
+		return string(buf[:l])
 	}
-	for {
-		_, err := a.conn.Read(buffer)
-		if err == nil {
-			break
-		}
-	}
-	return string(buffer)
 }
 
 func (a *Network) Run() {
@@ -50,8 +60,7 @@ func (a *Network) Run() {
 		var i int
 		var err error
 		for {
-			i , err = fmt.Scanf("%d", &i)
-			fmt.Println("read")
+			_, err = fmt.Scanf("%d", &i)
 			if err != nil {
 				fmt.Print("Invalid number.\nNumber > ")
 			} else {
@@ -61,26 +70,20 @@ func (a *Network) Run() {
 		res := a.send(i)
 		switch res {
 		case "high": fallthrough
-		case "low": fmt.Println("Your number is too %s.", res)
+		case "low": fmt.Printf("Your number is too %s.\n", res)
 		default:
-			fmt.Println("%s", res)
-			a.conn.Close()
+			fmt.Println(res)
 			return
 		}
 	}
 }
 
-func NewAssignment(local, remote string) *Network {
+func NewNetwork(local, remote string) *Network {
 	a := new(Network)
 	raddr, _ := net.ResolveUDPAddr("udp", remote)
 	laddr, _ := net.ResolveUDPAddr("udp", local)
-	conn, err := net.DialUDP("udp", laddr, raddr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	conn.SetDeadline(time.Now().Add(5 * time.Second))
-	conn.SetReadBuffer(BufferSize)
-	a.conn = conn
+	a.raddr = raddr
+	a.laddr = laddr
 	return a
 }
 
@@ -92,5 +95,5 @@ func main() {
 	}
 	local_ip_port := args[0]
 	remote_ip_port := args[1]
-	NewAssignment(local_ip_port, remote_ip_port).Run()
+	NewNetwork(local_ip_port, remote_ip_port).Run()
 }
